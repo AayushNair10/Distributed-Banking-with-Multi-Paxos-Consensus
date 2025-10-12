@@ -10,8 +10,9 @@ import subprocess
 import sys
 import time
 import uuid
-from collections import defaultdict, deque
+from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
+
 
 # Some basic settings for the network and timeouts.
 REQ_TIMEOUT = 2.0
@@ -757,7 +758,7 @@ class Driver:
         return replies
 
     def print_db(self) -> None:
-        print("\n=== PrintDB across nodes ===")
+        print("\n=== PrintDB ===")
         contactable = [nid for nid in sorted(self.nodes.keys()) if nid not in self._intentionally_stopped]
         try:
             self.update_node_snapshots(target_node_ids=contactable)
@@ -779,7 +780,7 @@ class Driver:
         print("=== End PrintDB ===\n")
 
     def print_log(self) -> None:
-        print("\n=== PrintLog across nodes (last 200 entries each) ===")
+        print("\n=== PrintLog ===")
         contactable = [nid for nid in sorted(self.nodes.keys()) if nid not in self._intentionally_stopped]
         replies = self.query_all_nodes({"type": "ADMIN_PRINTLOG"}, target_node_ids=contactable)
         for nid in sorted(self.nodes.keys()):
@@ -837,47 +838,121 @@ class Driver:
         print(f"Aggregated (majority) status: {agg}")
         print("=== End PrintStatus ===\n")
 
+
+
     def print_view(self) -> None:
-        """Prints all the NEW-VIEW messages that have been exchanged."""
+        # Condensed: print one representative NEW-VIEW per detected election (chronological).
         payload = {"type": "ADMIN_PRINTLOG"}
         replies = self.query_all_nodes(payload, target_node_ids=sorted(self.nodes.keys()))
-        
-        print("\n=== PrintView (NEW-VIEW messages found in logs) ===")
-        found_any = False
-        
+
+        # local extractor for (view, leader)
+        def _extract_view_and_leader_local(nv):
+            if not isinstance(nv, dict):
+                return ("unknown_view::invalid_msg", "unknown_leader")
+            b = nv.get("ballot") or nv.get("ballot_tuple")
+            if isinstance(b, (list, tuple)) and len(b) >= 2:
+                return (str(b[0]), str(b[1]))
+            accepts = nv.get("accepts")
+            if isinstance(accepts, list):
+                for a in accepts:
+                    if isinstance(a, dict):
+                        ab = a.get("ballot")
+                        if isinstance(ab, (list, tuple)) and len(ab) >= 2:
+                            return (str(ab[0]), str(ab[1]))
+            lower_nv = {k.lower(): v for k, v in nv.items()}
+            for k in ("view", "view_id", "viewid", "viewnumber", "v"):
+                if k in lower_nv:
+                    return (str(lower_nv[k]), str(lower_nv.get("from") or lower_nv.get("leader") or "unknown_leader"))
+            for k in ("leader", "leader_id", "primary", "proposer"):
+                if k in lower_nv:
+                    return ("unknown_view", str(lower_nv[k]))
+            if "from" in nv:
+                return ("unknown_view", str(nv.get("from")))
+            view_str = f"unknown_view::{hash(json.dumps(nv, sort_keys=True)) & 0xffffffff:08x}"
+            return (view_str, "unknown_leader")
+
+        # collect candidate NEW-VIEW entries
+        raw_entries = []
         for nid in sorted(self.nodes.keys()):
             resp = replies.get(nid)
             if resp is None:
-                status = "(simulated down)" if nid in self._intentionally_stopped else "(no reply / down)"
-                print(f"Node {nid}: {status}")
                 continue
-            
             log = resp.get("log", [])
-            newviews = []
-            
-            for e in log:
+            for idx, entry in enumerate(log):
                 try:
-                    m = e.get("msg", {})
-                    state = e.get("state", "")
-                    
-                    if isinstance(m, dict):
-                        msg_type = m.get("type", "")
-                        if msg_type in ("NEWVIEW", "NEW-VIEW"):
-                            newviews.append(m)
-                        elif "NEWVIEW" in state.upper() and msg_type == "NEWVIEW":
-                            newviews.append(m)
+                    m = entry.get("msg", {}) or {}
+                    state = (entry.get("state") or "") or ""
+                    typ = (m.get("type") or m.get("msg_type") or "").upper()
+                    if typ in ("NEWVIEW", "NEW-VIEW", "ACCEPT_FROM_NEWVIEW") or "NEWVIEW" in state.upper():
+                        raw_entries.append({"node": nid, "entry": entry, "msg": m, "idx": idx})
                 except Exception:
                     pass
-            
-            if newviews:
-                found_any = True
-                print(f"Node {nid} NEWVIEWs (count={len(newviews)}):")
-                for nv in newviews:
-                    print(f"  {json.dumps(nv)}")
-        
-        if not found_any:
-            print("No NEW-VIEW messages found in node logs.")
-        print("=== End PrintView ===\n")
+
+        if not raw_entries:
+            print("\nNo NEW-VIEW messages found in node logs.\n")
+            return
+
+        # helpers to sort entries
+        def _get_ts(rec):
+            entry = rec["entry"]
+            m = rec["msg"]
+            for k in ("timestamp", "ts", "time", "t", "logged_at"):
+                v = entry.get(k, None)
+                if v is None:
+                    v = m.get(k, None)
+                if v is None:
+                    continue
+                try:
+                    return float(v)
+                except Exception:
+                    try:
+                        s = str(v)
+                        mnum = re.search(r"(\d+(\.\d+)?)", s)
+                        if mnum:
+                            return float(mnum.group(1))
+                    except Exception:
+                        pass
+            seq = entry.get("seq") or m.get("seq")
+            try:
+                return float(seq)
+            except Exception:
+                return float("inf")
+
+        def _get_seq(rec):
+            entry = rec["entry"]
+            m = rec["msg"]
+            s = entry.get("seq") or m.get("seq")
+            try:
+                return int(s)
+            except Exception:
+                return 0
+
+        raw_entries_sorted = sorted(raw_entries, key=lambda r: (_get_ts(r), _get_seq(r), r["node"], r["idx"]))
+
+        # detect elections: change in (view, leader) over the chronological stream
+        elections = []
+        last_pair = (None, None)
+        for rec in raw_entries_sorted:
+            m = rec["msg"]
+            view_str, leader_str = _extract_view_and_leader_local(m)
+            pair = (view_str, leader_str)
+            if pair != last_pair:
+                elections.append({"view": view_str, "leader": leader_str, "node": rec["node"], "msg": m, "entry": rec["entry"], "ts": _get_ts(rec)})
+                last_pair = pair
+
+        # print condensed results (one NEW-VIEW per detected election)
+        print("\n=== PrintView (condensed: one NEW-VIEW per detected election) ===")
+        for ev in elections:
+            t = ev["ts"]
+            tstr = f"{t:.3f}" if t not in (None, float("inf")) else "no-ts"
+            try:
+                jm = json.dumps(ev["msg"], sort_keys=True)
+            except Exception:
+                jm = str(ev["msg"])
+            print(f"\nElection detected: view={ev['view']}, leader={ev['leader']}, observed_on_node={ev['node']}, ts={tstr}")
+            print(f"  NEW-VIEW message: {jm}")
+        print("\n=== End PrintView ===\n")
+
 
     def collect_and_log_commits(self, set_id: Optional[int] = None) -> None:
         contactable = [nid for nid in sorted(self.nodes.keys()) if nid not in self._intentionally_stopped]
@@ -1038,7 +1113,7 @@ class Driver:
                     cmd = input(
                         f"\nReady to process Set {sid} ({len(entries)} txns).\n"
                         f"Leader (assumed): {leader_info}\n"
-                        "Commands: [Enter=continue, fail, printDB, printLog, status <n>, view, quit]\n> "
+                        "Commands: [Enter=continue, fail, PrintDB, PrintLog, PrintStatus <n>, PrintView, quit]\n> "
                     ).strip()
                     if cmd == "":
                         break
@@ -1048,13 +1123,13 @@ class Driver:
                         self.print_db()
                     elif cmd.lower() == "printlog":
                         self.print_log()
-                    elif cmd.lower().startswith("status"):
+                    elif cmd.lower().startswith("printstatus"):
                         parts = cmd.split()
                         if len(parts) == 2 and parts[1].isdigit():
                             self.print_status(int(parts[1]))
                         else:
-                            print("Usage: status <seq>")
-                    elif cmd.lower() == "view":
+                            print("Usage: PrintStatus <seq>")
+                    elif cmd.lower() == "printview":
                         self.print_view()
                     elif cmd.lower() in ("quit", "exit"):
                         self.stop_all_started_nodes()
@@ -1135,11 +1210,11 @@ class Driver:
 
                 print("Waiting briefly for cluster to process transactions...")
                 time.sleep(0.2)
-                print(f"Finished processing Set {sid}. You may now run admin commands (printDB/printLog/status/view) or press Enter to continue to next set.")
+                print(f"Finished processing Set {sid}. You may now run admin commands (PrintDB/PrintLog/PrintStatus/PrintView) or press Enter to continue to next set.")
 
             while True:
                 cmd = input(
-                    "\nAll transactions complete. Commands: [Enter=repeat message, printDB, printLog, status <n>, view, quit]\n> "
+                    "\nAll transactions complete. Commands: [Enter=repeat message, PrintDB, PrintLog, PrintStatus <n>, PrintView, quit]\n> "
                 ).strip()
                 if cmd == "":
                     print("All transactions complete")
@@ -1158,7 +1233,7 @@ class Driver:
                 elif cmd.lower() == "view":
                     self.print_view()
                 else:
-                    print("Unknown command. Valid commands: printDB, printLog, status <n>, view, quit")
+                    print("Unknown command. Valid commands: PrintDB, PrintLog, PrintStatus <n>, PrintView, quit")
 
         finally:
             self.stop_all_started_nodes()
