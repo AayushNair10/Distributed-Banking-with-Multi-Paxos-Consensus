@@ -105,14 +105,10 @@ class NodeServer:
         # Paxos-specific state variables.
         self.ballot: List[int] = [1, self.node_id]
         self.promised_ballot: Optional[List[int]] = None
-        # Tracks accepted proposals: sequence number -> (ballot, transaction, request_id).
         self.accepted: Dict[int, Tuple[List[int], Dict[str, Any], Optional[str]]] = {}
-        # Tracks committed transactions: sequence number -> transaction.
         self.committed: Dict[int, Dict[str, Any]] = {}
-        # Metadata for committed transactions, like request IDs.
         self.committed_meta: Dict[int, Optional[str]] = {}
 
-        # Sequence numbers for log entries and execution.
         self.next_seq = 1
         self.last_executed_seq = 0
 
@@ -126,18 +122,13 @@ class NodeServer:
         self._seq_counter = 0
         self._lock = threading.Lock()
 
-        # Leader uses this to track quorum status for proposals.
         self.accepted_quorums: Dict[int, set] = {}
 
-        # State for request deduplication and caching replies.
-        # Caches the last reply sent for a given request ID.
+        
         self.last_replies_by_req: Dict[str, Dict[str, Any]] = {}
-        # Set of request IDs that have already been processed.
         self.processed_req_ids: set = set()
-        # Maps a client to their last known request ID.
         self.last_req_by_client: Dict[str, str] = {}
 
-        # Stores the result of each committed transaction.
         self.committed_results: Dict[int, str] = {}
 
         # Timers and settings for leader election.
@@ -147,11 +138,9 @@ class NodeServer:
         self.request_timer_running = False
         self.request_timer_expire_ts: Optional[float] = None
 
-        # Queue for client requests received when this node isn't the leader.
-        # Requests are queued if we can't forward them to a known leader.
+        
         self.pending_requests: List[Dict[str, Any]] = []
 
-        # State for checkpointing the database.
         self.checkpoint_period = int(self.config.get("checkpoint_period", 100))
         self.latest_checkpoint_seq: int = 0
         self.checkpoint_db: Optional[Dict[str, int]] = None
@@ -165,7 +154,6 @@ class NodeServer:
 
         # A log file for auditing committed transactions.
         self.commit_log_file = f"node_{self.node_id}_commits.log"
-        # Make sure the commit log file exists.
         try:
             open(self.commit_log_file, "a").close()
         except Exception:
@@ -260,7 +248,7 @@ class NodeServer:
             if not cp or not isinstance(cp.get("db"), dict):
                 return
 
-            # Clean up the received checkpoint data and see if it's newer than ours.
+            # Clean up the received checkpoint data and see if it's newer.
             try:
                 peer_cp_seq = int(cp.get("checkpoint_seq", cp.get("last_executed_seq", 0) or 0) or 0)
             except Exception:
@@ -269,7 +257,6 @@ class NodeServer:
             if peer_cp_seq <= self.latest_checkpoint_seq:
                 return
 
-            # Install the newer checkpoint.
             try:
                 db_norm: Dict[str, int] = {}
                 for k, v in cp.get("db", {}).items():
@@ -283,17 +270,13 @@ class NodeServer:
 
                 # Safely update sequence numbers.
                 with self._lock:
-                    # Prepare the checkpoint database.
                     self.checkpoint_db = dict(db_norm)
-                    # Store the latest sequence number.
                     self.latest_checkpoint_seq = peer_cp_seq
-                    # Make sure our next sequence number is current.
                     try:
                         peer_next_seq = int(cp.get("next_seq", self.next_seq) or self.next_seq)
                         self.next_seq = max(self.next_seq, peer_next_seq)
                     except Exception:
                         pass
-                    # Install the snapshot, which updates state and cleans up old logs.
                     self._install_checkpoint(peer_cp_seq, self.checkpoint_db)
             except Exception:
                 pass
@@ -307,8 +290,6 @@ class NodeServer:
         if self._start_timers_on_startup:
             self._start_request_timer_if_needed()
 
-        # First, catch up with neighbors before trying to become leader.
-        # This helps a restarted node get the latest state quickly.
         try:
             self._neighbor_catchup()
         except Exception:
@@ -478,7 +459,6 @@ class NodeServer:
                     if reqid and reqid in self.processed_req_ids:
                         self.append_log(s, {"type": "COMMIT_SKIPPED_DUP_REQ", "seq": s, "txn": txn, "req_id": reqid}, "COMMIT_SKIPPED")
                         continue
-                    # Store the committed transaction and its metadata.
                     self.committed[s] = txn
                     self.committed_meta[s] = reqid
                     self.append_log(s, {"type": "COMMIT", "seq": s, "txn": txn, "req_id": reqid}, "COMMITTED_BY_NEWVIEW")
@@ -624,7 +604,6 @@ class NodeServer:
                     pass
                 os._exit(0)
 
-            # This version of PRINTDB also returns sequence metadata.
             elif mtype == "ADMIN_PRINTDB":
                 try:
                     with self._lock:
@@ -668,7 +647,6 @@ class NodeServer:
                     with self._lock:
                         dbcopy = {str(k).upper(): int(v) for k, v in self.db.items()}
                         # Get a map of committed metadata up to the last checkpoint.
-                        # This includes all metadata up to the latest checkpoint sequence.
                         cm = {}
                         for s, rid in self.committed_meta.items():
                             try:
@@ -912,7 +890,6 @@ class NodeServer:
 
         # Accept the commit.
         self.committed[seq] = txn
-        # Store the request ID, or try to find it from the accepted proposal if not provided.
         if req_id:
             self.committed_meta[seq] = req_id
         else:
@@ -920,10 +897,8 @@ class NodeServer:
             if existing and existing[2] is not None:
                 self.committed_meta[seq] = existing[2]
             else:
-                # Can be left as None for now.
                 self.committed_meta[seq] = None
 
-        # If the commit has a request ID, add it to our accepted map.
         try:
             existing = self.accepted.get(seq)
             if existing and existing[2] is None and req_id:
@@ -932,7 +907,6 @@ class NodeServer:
             pass
 
         self.append_log(seq, {"type": "COMMIT", "seq": seq, "txn": txn, "req_id": req_id}, "COMMITTED")
-        # Write the commit to a file.
         self._log_commit_to_file(seq, txn, req_id)
 
         executed = self._try_execute()
@@ -1005,31 +979,24 @@ class NodeServer:
         txn = msg.get("txn") or {}
         timestamp = msg.get("timestamp", now_ts())
 
-        # Try to find the request ID if the client didn't send one.
         if req_id is None and client_id:
             req_id = self.last_req_by_client.get(client_id)
 
-        # For duplicate requests, send the cached reply.
         if req_id and req_id in self.last_replies_by_req:
             return self.last_replies_by_req[req_id]
 
-        # Don't queue the same request twice.
         if req_id and any(pr.get("req_id") == req_id for pr in self.pending_requests):
             return {"type": "REPLY", "status": "ALREADY_QUEUED", "node_id": self.node_id, "req_id": req_id}
 
-        # Keep track of the last request from this client.
         if client_id and req_id:
             self.last_req_by_client[client_id] = req_id
 
-        # If we already executed this, send the same reply.
         if req_id and req_id in self.processed_req_ids:
             cached = self.last_replies_by_req.get(req_id)
             if cached:
                 return cached
 
-        # If we are the leader, process the request.
         if self.is_leader:
-            # Make sure we have a leader ballot.
             if self.leader_ballot is None:
                 self.leader_ballot = list(self.ballot)
 
@@ -1059,12 +1026,10 @@ class NodeServer:
             self.accepted_quorums[seq] = accepted_nodes
 
             if accept_count >= MAJORITY(self.node_count):
-                # Don't commit a duplicate request.
                 if req_id and req_id in self.processed_req_ids:
                     self.append_log(seq, {"type": "COMMIT_SKIPPED_DUP_REQ", "seq": seq, "txn": txn, "req_id": req_id}, "COMMIT_SKIPPED")
                     return {"type": "REPLY", "status": "DUPLICATE_IGNORED", "req_id": req_id, "node_id": self.node_id}
 
-                # Store the committed transaction and its metadata.
                 self.committed[seq] = txn
                 self.committed_meta[seq] = req_id
                 self.append_log(seq, {"type": "COMMIT_SENT", "seq": seq, "txn": txn, "req_id": req_id}, "COMMIT_SENT")
@@ -1077,7 +1042,6 @@ class NodeServer:
                     except Exception:
                         pass
 
-                # Log the commit and try to execute it.
                 self._log_commit_to_file(seq, txn, req_id)
                 executed_now = self._try_execute()
                 result = self.committed_results.get(seq, "FAILED")
@@ -1093,9 +1057,8 @@ class NodeServer:
                 ack = {"type": "REPLY", "status": "RECEIVED", "node_id": self.node_id}
                 return ack
 
-        # This part runs if we are not the leader.
+        
         # If we know the leader, forward the request.
-        # Otherwise, queue it up.
         if self.leader_id is not None and self.leader_id in self.peers:
             leader_host, leader_port = self.peers[self.leader_id]
             fwd = {"type": "REQUEST", "client_id": client_id, "req_id": req_id, "txn": txn, "timestamp": timestamp}
@@ -1119,10 +1082,8 @@ class NodeServer:
                 # Pass the leader's reply back to the client.
                 return r
             else:
-                # If we can't reach the leader, queue the request instead.
                 pass
 
-        # If there's no leader, queue the request.
         self.pending_requests.append(msg)
         self.append_log(0, {"type": "REQUEST_ENQUEUED", "client_id": client_id, "req_id": req_id}, "REQUEST_ENQUEUED")
         self._start_request_timer_if_needed()
@@ -1134,9 +1095,7 @@ class NodeServer:
         while True:
             nxt = self.last_executed_seq + 1
 
-            # We can only execute a transaction if it's been committed.
             if nxt not in self.committed:
-                # Check for gaps in the commit sequence.
                 has_higher = any(s > nxt for s in self.committed.keys())
                 if has_higher:
                     pass
@@ -1144,7 +1103,6 @@ class NodeServer:
 
             txn = self.committed[nxt]
 
-            # Find the request ID from various places for better deduplication.
             req_id = None
             if isinstance(txn, dict):
                 req_id = txn.get("req_id") or txn.get("_req_id") or None
@@ -1155,7 +1113,7 @@ class NodeServer:
                 if acc and len(acc) >= 3:
                     req_id = acc[2]
 
-            # A key step: skip execution if we've already processed this request ID.
+            # Skip execution if we've already processed this request ID.
             if req_id and req_id in self.processed_req_ids:
                 self.committed_results[nxt] = "DUPLICATE_IGNORED"
                 self.last_executed_seq = nxt
@@ -1171,7 +1129,7 @@ class NodeServer:
                 executed_any = True
                 continue
 
-            # Now, execute the transaction.
+            # Execute the transaction.
             if isinstance(txn, dict) and txn.get("noop"):
                 self.committed_results[nxt] = "SUCCESS"
             else:

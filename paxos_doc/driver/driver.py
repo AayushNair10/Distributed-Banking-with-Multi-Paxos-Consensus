@@ -14,7 +14,6 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
 
-# Some basic settings for the network and timeouts.
 REQ_TIMEOUT = 2.0
 REPLY_BUFFER = 65536
 CLIENT_LEADER_TIMEOUT = 10.0
@@ -23,7 +22,6 @@ BROADCAST_AFTER_NO_REPLY = True
 SET_WAIT_TIMEOUT = 10.0
 MAJORITY = lambda n: (n // 2) + 1
 
-# Used by the function that collects and logs commits.
 COMMITS_LOGFILE = "commits.log"
 
 
@@ -294,10 +292,9 @@ class Driver:
         cfg_clients = [str(c) for c in self.config.get("clients", [])]
         self.client_ids = [c.upper() for c in cfg_clients] if cfg_clients else [chr(ord("A") + i) for i in range(10)]
 
-        # Load the transaction sets from the CSV file.
         self.csv_sets = load_csv_sets(csv_path, nodes_count=self.node_count)
 
-        # Clean up the list of live nodes for each row.
+        # Clean
         node_keys_sorted = sorted(self.nodes.keys())
         node_count = len(node_keys_sorted)
         for sid, entries in self.csv_sets.items():
@@ -313,7 +310,6 @@ class Driver:
                             normalized.append(node_keys_sorted[lid - 1])
                 e["live_ids"] = sorted(set(normalized))
 
-        # Make sure the account names in the CSV are valid.
         valid_clients = set(self.client_ids)
         for sid, entries in self.csv_sets.items():
             for e in entries:
@@ -332,12 +328,10 @@ class Driver:
                     e["src"] = str(src).upper()
                     e["dst"] = str(dst).upper()
                 else:
-                    # Mark leader failure rows clearly.
                     e["src"] = None
                     e["dst"] = None
                     e["amt"] = 0
 
-        # Figure out which nodes should be live for each set.
         default_live = sorted(self.nodes.keys()) if self.nodes else []
         self.set_live_map: Dict[int, List[int]] = {}
         for sid, entries in self.csv_sets.items():
@@ -455,7 +449,7 @@ class Driver:
         self._intentionally_stopped.clear()
 
     def fail_leader(self) -> None:
-        """Kills the current leader if the driver started it."""
+        #Kills the current leader if the driver started it
         if self.leader in self.started_nodes_processes:
             p = self.started_nodes_processes[self.leader]
             try:
@@ -478,7 +472,7 @@ class Driver:
         self._known_ballot = None
 
     def stop_node(self, nid: int) -> None:
-        """Stops a specific node if the driver started it."""
+        #Stops a specific node if the driver started it
         if nid in self.started_nodes_processes:
             p = self.started_nodes_processes.get(nid)
             if p:
@@ -512,7 +506,6 @@ class Driver:
                     except Exception:
                         pass
                     time.sleep(0.1)
-                # Refresh the node's data snapshot.
                 self.update_node_snapshots(target_node_ids=[nid])
                 # Try to get the node caught up with its peers.
                 try:
@@ -841,7 +834,7 @@ class Driver:
 
 
     def print_view(self) -> None:
-        # Condensed: print one representative NEW-VIEW per detected election (chronological).
+        # One representative NEW-VIEW per election
         payload = {"type": "ADMIN_PRINTLOG"}
         replies = self.query_all_nodes(payload, target_node_ids=sorted(self.nodes.keys()))
 
@@ -940,8 +933,8 @@ class Driver:
                 elections.append({"view": view_str, "leader": leader_str, "node": rec["node"], "msg": m, "entry": rec["entry"], "ts": _get_ts(rec)})
                 last_pair = pair
 
-        # print condensed results (one NEW-VIEW per detected election)
-        print("\n=== PrintView (condensed: one NEW-VIEW per detected election) ===")
+        # print 
+        print("\n=== PrintView ===")
         for ev in elections:
             t = ev["ts"]
             tstr = f"{t:.3f}" if t not in (None, float("inf")) else "no-ts"
