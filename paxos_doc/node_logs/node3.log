@@ -1,0 +1,10 @@
+2025-10-03 20:18:46,237 INFO Node 3 initialized; peers=[0, 1, 2, 3, 4] t_timeout=2.00s tp=3.00s
+2025-10-03 20:18:46,237 INFO Node 3 listening on 127.0.0.1:5003
+2025-10-03 21:31:37,250 INFO Node 3 initialized; peers=[0, 1, 2, 3, 4] t_timeout=2.00s tp=3.00s start_timers=False
+2025-10-03 21:31:37,250 INFO Node 3 listening on 127.0.0.1:5003
+2025-10-03 21:39:57,095 INFO Node 3 received PREPARE from ('127.0.0.1', 54445): {'type': 'PREPARE', 'ballot': [2, 0], 'from': 0}
+2025-10-03 21:39:57,118 INFO Node 3 received NEWVIEW from ('127.0.0.1', 54450): {'type': 'NEWVIEW', 'ballot': [2, 0], 'accepts': [], 'from': 0}
+2025-10-03 21:39:57,118 INFO Node 3 set leader_id=0, leader_ballot=[2, 0]
+2025-10-03 21:40:27,351 INFO Node 3 received ADMIN_PRINTDB from ('127.0.0.1', 54462): {'type': 'ADMIN_PRINTDB'}
+2025-10-03 21:40:46,089 INFO Node 3 received ADMIN_PRINTLOG from ('127.0.0.1', 54467): {'type': 'ADMIN_PRINTLOG'}
+2025-10-03 21:41:03,420 INFO Node 3 received ADMIN_PRINTLOG from ('127.0.0.1', 54475): {'type': 'ADMIN_PRINTLOG'}

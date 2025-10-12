@@ -1,0 +1,19 @@
+2025-10-03 20:18:45,980 INFO Node 0 initialized; peers=[0, 1, 2, 3, 4] t_timeout=0.50s tp=3.00s
+2025-10-03 20:18:45,980 INFO Node 0 listening on 127.0.0.1:5000
+2025-10-03 21:31:37,001 INFO Node 0 initialized; peers=[0, 1, 2, 3, 4] t_timeout=0.50s tp=3.00s start_timers=False
+2025-10-03 21:31:37,001 INFO Node 0 listening on 127.0.0.1:5000
+2025-10-03 21:39:56,561 INFO Node 0 received REQUEST from ('127.0.0.1', 54437): {'type': 'REQUEST', 'client_id': 'c1', 'req_id': 'c1-aaa6f086', 'txn': {'src': 'A', 'dst': 'C', 'amt': 5}, 'timestamp': 1759541996.5520089}
+2025-10-03 21:39:56,562 INFO Node 0 started request_timer (expires in 0.50s)
+2025-10-03 21:39:56,619 INFO Node 0 received REQUEST from ('127.0.0.1', 54438): {'type': 'REQUEST', 'client_id': 'c2', 'req_id': 'c2-a6ce1254', 'txn': {'src': 'C', 'dst': 'E', 'amt': 4}, 'timestamp': 1759541996.61829}
+2025-10-03 21:39:56,675 INFO Node 0 received REQUEST from ('127.0.0.1', 54439): {'type': 'REQUEST', 'client_id': 'c3', 'req_id': 'c3-02e87e27', 'txn': {'src': 'E', 'dst': 'A', 'amt': 10}, 'timestamp': 1759541996.6746318}
+2025-10-03 21:39:56,732 INFO Node 0 received REQUEST from ('127.0.0.1', 54440): {'type': 'REQUEST', 'client_id': 'c4', 'req_id': 'c4-e614e368', 'txn': {'src': 'B', 'dst': 'D', 'amt': 2}, 'timestamp': 1759541996.73102}
+2025-10-03 21:39:56,789 INFO Node 0 received REQUEST from ('127.0.0.1', 54441): {'type': 'REQUEST', 'client_id': 'c5', 'req_id': 'c5-ffe82a3e', 'txn': {'src': 'E', 'dst': 'C', 'amt': 3}, 'timestamp': 1759541996.787988}
+2025-10-03 21:39:57,070 INFO Node 0 request_timer expired
+2025-10-03 21:39:57,070 INFO Node 0 attempting PREPARE (candidate)
+2025-10-03 21:39:57,072 INFO Node 0 received PREPARE from ('127.0.0.1', 54442): {'type': 'PREPARE', 'ballot': [2, 0], 'from': 0}
+2025-10-03 21:39:57,107 INFO Node 0 became leader with ballot [2, 0], next_seq=1
+2025-10-03 21:39:57,108 INFO Node 0 received NEWVIEW from ('127.0.0.1', 54447): {'type': 'NEWVIEW', 'ballot': [2, 0], 'accepts': [], 'from': 0}
+2025-10-03 21:39:57,108 INFO Node 0 set leader_id=0, leader_ballot=[2, 0]
+2025-10-03 21:40:27,344 INFO Node 0 received ADMIN_PRINTDB from ('127.0.0.1', 54459): {'type': 'ADMIN_PRINTDB'}
+2025-10-03 21:40:46,083 INFO Node 0 received ADMIN_PRINTLOG from ('127.0.0.1', 54464): {'type': 'ADMIN_PRINTLOG'}
+2025-10-03 21:41:03,415 INFO Node 0 received ADMIN_PRINTLOG from ('127.0.0.1', 54472): {'type': 'ADMIN_PRINTLOG'}
