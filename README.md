@@ -2,9 +2,6 @@
 
 A fault-tolerant distributed banking application built on the **Stable-Leader Multi-Paxos** consensus protocol. This implementation supports crash fault tolerance for up to 2 simultaneous node failures across a 5-node cluster, ensuring consistent transaction processing and exactly-once semantics.
 
-> **Course**: CSE 535 - Distributed Systems  
-> **Project**: Paxos Consensus Protocol Implementation
-
 ---
 
 ## Features
